@@ -1,42 +1,32 @@
 package com.bakertelekom.portugaltowers.ui.map
 
-import android.graphics.PointF
-import android.os.Bundle
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.bakertelekom.portugaltowers.domain.Operator
 import com.bakertelekom.portugaltowers.domain.Tower
-import org.maplibre.android.MapLibre
-import org.maplibre.android.camera.CameraPosition
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression.get
-import org.maplibre.android.style.expressions.Expression.literal
-import org.maplibre.android.style.expressions.Expression.match
-import org.maplibre.android.style.layers.CircleLayer
-import org.maplibre.android.style.layers.PropertyFactory.circleColor
-import org.maplibre.android.style.layers.PropertyFactory.circleRadius
-import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
-import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Point
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
+import org.osmdroid.views.CustomZoomButtonsController
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 
 @Composable
 fun TowerMap(
@@ -46,67 +36,53 @@ fun TowerMap(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val towerLookup = remember(towers) { towers.associateBy { it.mapFeatureId } }
-    var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
-
+    val markerIconFactory = remember { TowerMarkerIconFactory(context) }
     val mapView = remember {
-        MapLibre.getInstance(context)
+        Configuration.getInstance().userAgentValue = context.packageName
         MapView(context).apply {
-            onCreate(Bundle())
-            getMapAsync { map ->
-                mapLibreMap = map
-                map.uiSettings.apply {
-                    isCompassEnabled = true
-                    isLogoEnabled = false
-                    isAttributionEnabled = true
-                }
-                map.cameraPosition = CameraPosition.Builder()
-                    .target(LatLng(39.5, -8.0))
-                    .zoom(5.7)
-                    .build()
-                map.setStyle(Style.Builder().fromJson(OSM_RASTER_STYLE)) { style ->
-                    ensureTowerLayer(style)
-                    updateTowerSource(style, towers)
-                }
-                map.addOnMapClickListener { latLng ->
-                    val point = map.projection.toScreenLocation(latLng)
-                    val features = map.queryRenderedFeatures(point, TOWER_LAYER_ID)
-                    val featureId = features.firstOrNull()?.getStringProperty(PROPERTY_ID)
-                    val tower = featureId?.let { towerLookup[it] }
-                    if (tower != null) {
-                        onTowerSelected(tower)
-                        true
-                    } else {
-                        false
-                    }
-                }
-            }
+            setTileSource(OSM_SOURCE)
+            setMultiTouchControls(true)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+            minZoomLevel = 5.0
+            maxZoomLevel = 19.0
+            controller.setZoom(6.0)
+            controller.setCenter(GeoPoint(39.5, -8.0))
         }
     }
 
     DisposableEffect(lifecycleOwner, mapView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDetach()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onDestroy()
+            mapView.onDetach()
         }
     }
 
-    LaunchedEffect(towers, mapLibreMap) {
-        mapLibreMap?.getStyle { style ->
-            ensureTowerLayer(style)
-            updateTowerSource(style, towers)
+    LaunchedEffect(towers) {
+        mapView.overlays.clear()
+        towers.forEach { tower ->
+            mapView.overlays.add(
+                Marker(mapView).apply {
+                    position = GeoPoint(tower.latitude, tower.longitude)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    icon = markerIconFactory.iconFor(tower.operators)
+                    infoWindow = null
+                    setOnMarkerClickListener { _, _ ->
+                        onTowerSelected(tower)
+                        true
+                    }
+                },
+            )
         }
+        mapView.invalidate()
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -117,71 +93,83 @@ fun TowerMap(
     }
 }
 
-private fun ensureTowerLayer(style: Style) {
-    if (style.getSource(TOWER_SOURCE_ID) == null) {
-        style.addSource(GeoJsonSource(TOWER_SOURCE_ID, FeatureCollection.fromFeatures(emptyList())))
-    }
-    if (style.getLayer(TOWER_LAYER_ID) == null) {
-        style.addLayer(
-            CircleLayer(TOWER_LAYER_ID, TOWER_SOURCE_ID).withProperties(
-                circleRadius(7f),
-                circleStrokeWidth(1.8f),
-                circleStrokeColor("#FFFFFF"),
-                circleColor(
-                    match(
-                        get(PROPERTY_OPERATOR),
-                        literal(Operator.Meo.name), literal("#005BAC"),
-                        literal(Operator.Nos.name), literal("#1A1A1A"),
-                        literal(Operator.Vodafone.name), literal("#E60000"),
-                        literal(Operator.Digi.name), literal("#00AA44"),
-                        literal("#777777"),
-                    ),
-                ),
-            ),
-        )
-    }
+private val OSM_SOURCE = object : OnlineTileSourceBase(
+    "OSM",
+    0,
+    19,
+    256,
+    ".png",
+    arrayOf("https://tile.openstreetmap.org/"),
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String =
+        baseUrl +
+            MapTileIndex.getZoom(pMapTileIndex) + "/" +
+            MapTileIndex.getX(pMapTileIndex) + "/" +
+            MapTileIndex.getY(pMapTileIndex) + ".png"
 }
 
-private fun updateTowerSource(style: Style, towers: List<Tower>) {
-    val source = style.getSourceAs<GeoJsonSource>(TOWER_SOURCE_ID) ?: return
-    source.setGeoJson(
-        FeatureCollection.fromFeatures(
-            towers.map { tower ->
-                Feature.fromGeometry(
-                    Point.fromLngLat(tower.longitude, tower.latitude),
-                ).apply {
-                    addStringProperty(PROPERTY_ID, tower.mapFeatureId)
-                    addStringProperty(PROPERTY_OPERATOR, tower.primaryOperator.name)
+private class TowerMarkerIconFactory(private val context: Context) {
+    private val cache = mutableMapOf<String, BitmapDrawable>()
+
+    fun iconFor(operators: Set<Operator>): BitmapDrawable {
+        val normalized = operators.ifEmpty { setOf(Operator.Unknown) }
+        val key = normalized.sortedBy { it.ordinal }.joinToString("_") { it.name }
+        return cache.getOrPut(key) { createIcon(normalized) }
+    }
+
+    private fun createIcon(operators: Set<Operator>): BitmapDrawable {
+        val density = context.resources.displayMetrics.density
+        val size = (46 * density).toInt()
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val rect = RectF(0f, 0f, size.toFloat(), size.toFloat())
+        val ordered = operators
+            .filter { it != Operator.Unknown }
+            .ifEmpty { listOf(Operator.Unknown) }
+            .sortedBy { it.ordinal }
+
+        when (ordered.size) {
+            1 -> {
+                paint.color = ordered[0].brandColor.toInt()
+                canvas.drawArc(rect, 0f, 360f, true, paint)
+            }
+            2 -> {
+                paint.color = ordered[0].brandColor.toInt()
+                canvas.drawArc(rect, 180f, 180f, true, paint)
+                paint.color = ordered[1].brandColor.toInt()
+                canvas.drawArc(rect, 0f, 180f, true, paint)
+            }
+            3 -> {
+                ordered.take(3).forEachIndexed { index, operator ->
+                    paint.color = operator.brandColor.toInt()
+                    canvas.drawArc(rect, 210f + (index * 120f), 120f, true, paint)
                 }
-            },
-        ),
-    )
-}
+            }
+            else -> {
+                ordered.take(4).forEachIndexed { index, operator ->
+                    paint.color = operator.brandColor.toInt()
+                    canvas.drawArc(rect, 180f + (index * 90f), 90f, true, paint)
+                }
+            }
+        }
 
-private val Tower.mapFeatureId: String
-    get() = "$id:$latitude:$longitude"
+        val center = size / 2f
+        paint.color = android.graphics.Color.WHITE
+        canvas.drawCircle(center, center, center * 0.72f, paint)
+        paint.color = android.graphics.Color.parseColor("#263238")
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 2.5f * density
+        paint.strokeCap = Paint.Cap.ROUND
+        val towerHalfWidth = 8f * density
+        val top = 14f * density
+        val bottom = 32f * density
+        canvas.drawLine(center - towerHalfWidth, bottom, center - 2f * density, top, paint)
+        canvas.drawLine(center + towerHalfWidth, bottom, center + 2f * density, top, paint)
+        canvas.drawLine(center - 4f * density, 22f * density, center + 4f * density, 22f * density, paint)
+        canvas.drawLine(center - towerHalfWidth, bottom, center + 4f * density, 22f * density, paint)
+        canvas.drawLine(center + towerHalfWidth, bottom, center - 4f * density, 22f * density, paint)
 
-private const val TOWER_SOURCE_ID = "portugal-towers-source"
-private const val TOWER_LAYER_ID = "portugal-towers-layer"
-private const val PROPERTY_ID = "tower_id"
-private const val PROPERTY_OPERATOR = "operator"
-private const val OSM_RASTER_STYLE = """
-{
-  "version": 8,
-  "sources": {
-    "osm": {
-      "type": "raster",
-      "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      "tileSize": 256,
-      "attribution": "© OpenStreetMap contributors"
+        return BitmapDrawable(context.resources, bitmap)
     }
-  },
-  "layers": [
-    {
-      "id": "osm",
-      "type": "raster",
-      "source": "osm"
-    }
-  ]
 }
-"""
