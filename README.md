@@ -52,6 +52,24 @@ Portugal Towers e uma app comunitaria e nao oficial.
 
 Em Portugal, os dados publicos oficiais sobre antenas moveis nao estao disponibilizados de forma aberta e completa para reutilizacao direta. Por isso, a app usa dados colaborativos e fontes comunitarias.
 
+## Posicao sobre open data
+
+Portugal Towers defende que a localizacao das estacoes base e torres de telecomunicacoes deve existir em open data, num formato publico, descarregavel, reutilizavel e atualizado regularmente.
+
+A ANACOM publica informacao estatistica agregada sobre redes moveis, incluindo numeros de estacoes 5G por operador, concelho ou freguesia. Essa informacao e util, mas nao resolve o problema principal: os cidadaos, investigadores, autarquias e comunidades tecnicas continuam sem uma base aberta e pratica com a localizacao das infraestruturas de rede.
+
+Esta falta de transparencia prejudica:
+
+- verificacao independente da cobertura real;
+- investigacao academica e jornalistica;
+- planeamento municipal e analise territorial;
+- projetos comunitarios como CellMapper, OpenStreetMap e Portugal Towers;
+- confianca publica na evolucao das redes moveis.
+
+A existencia de uma base aberta nao obriga a expor informacao sensivel de seguranca ou configuracoes internas das redes. Bastaria publicar dados civicos essenciais, como localizacao aproximada, operador, tecnologia declarada, estado ativo/inativo e data de atualizacao.
+
+Enquanto essa informacao nao existir em open data oficial, Portugal Towers assume uma abordagem comunitaria: organizar, visualizar e tornar mais acessiveis dados colaborativos, deixando claro que a app e independente, informativa e nao oficial.
+
 Creditos e referencias:
 
 - Comunidade portuguesa CellMapper.
@@ -116,10 +134,3 @@ A localizacao e usada apenas no dispositivo enquanto a app esta ativa.
 ## Estado do projeto
 
 Este repositorio e a versao Android nativa do Portugal Towers. O antigo projeto React Native/Expo foi usado como referencia para produto, fluxos, dados, creditos e assets, mas a implementacao atual foi migrada para Kotlin/Compose.
-
-Foco atual:
-
-- performance do mapa
-- consistencia Material Design 3
-- dados locais em SQLite
-- codigo simples e sustentavel
