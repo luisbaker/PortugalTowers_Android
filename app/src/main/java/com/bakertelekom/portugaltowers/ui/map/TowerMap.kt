@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,8 +37,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.bakertelekom.portugaltowers.domain.MapTowerCluster
 import com.bakertelekom.portugaltowers.domain.Operator
 import com.bakertelekom.portugaltowers.domain.Tower
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.osmdroid.bonuspack.clustering.RadiusMarkerClusterer
 import org.osmdroid.bonuspack.clustering.StaticCluster
 import org.osmdroid.config.Configuration
@@ -55,18 +60,21 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.io.File
-import kotlin.math.roundToInt
 
 @Composable
 fun TowerMap(
-    towers: List<Tower>,
+    towerCount: Int,
+    loadVisibleTowers: suspend (Double, Double, Double, Double, Int) -> List<Tower>,
+    loadMacroClusters: suspend (Double) -> List<MapTowerCluster>,
     onTowerSelected: (Tower) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     val markerIconFactory = remember { TowerMarkerIconFactory(context) }
     var locationOverlay by remember { mutableStateOf<MyLocationNewOverlay?>(null) }
+    var refreshJob by remember { mutableStateOf<Job?>(null) }
     val macroClusterer = remember { RadiusMarkerClusterer(context).apply { setRadius(280) } }
     val clusterer = remember {
         object : RadiusMarkerClusterer(context) {
@@ -141,31 +149,53 @@ fun TowerMap(
         }
     }
 
-    LaunchedEffect(towers) {
+    LaunchedEffect(towerCount) {
         mapView.installStaticOverlays(context) { locationOverlay = it }
         fun refreshMarkers() {
-            val detailed = mapView.zoomLevelDouble >= DETAIL_MARKER_ZOOM
-            mapView.overlays.remove(clusterer)
-            mapView.overlays.remove(macroClusterer)
-            clusterer.items.clear()
-            macroClusterer.items.clear()
-            if (detailed) {
-                towers.asSequence()
-                    .filter { mapView.boundingBox.contains(GeoPoint(it.latitude, it.longitude)) }
-                    .take(MAX_VISIBLE_DETAIL_MARKERS)
-                    .forEach { tower ->
-                        clusterer.add(tower.toMarker(mapView, markerIconFactory, onTowerSelected))
+            refreshJob?.cancel()
+            refreshJob = scope.launch {
+                delay(MAP_REFRESH_DEBOUNCE_MS)
+                val detailed = mapView.zoomLevelDouble >= DETAIL_MARKER_ZOOM
+                val box = mapView.boundingBox
+                val result = runCatching {
+                    if (detailed) {
+                        MarkerPayload.Detail(
+                            loadVisibleTowers(
+                                box.latSouth,
+                                box.latNorth,
+                                box.lonWest,
+                                box.lonEast,
+                                MAX_VISIBLE_DETAIL_MARKERS,
+                            ),
+                        )
+                    } else {
+                        MarkerPayload.Macro(loadMacroClusters(MACRO_CLUSTER_CELL_SIZE))
                     }
-                mapView.overlays.add(clusterer)
-                clusterer.invalidate()
-            } else {
-                buildMacroClusters(towers).forEach { cluster ->
-                    macroClusterer.add(cluster.toMarker(mapView, markerIconFactory))
+                }.getOrNull() ?: return@launch
+
+                mapView.overlays.remove(clusterer)
+                mapView.overlays.remove(macroClusterer)
+                clusterer.items.clear()
+                macroClusterer.items.clear()
+
+                when (result) {
+                    is MarkerPayload.Detail -> {
+                        result.towers.forEach { tower ->
+                            clusterer.add(tower.toMarker(mapView, markerIconFactory, onTowerSelected))
+                        }
+                        mapView.overlays.add(clusterer)
+                        clusterer.invalidate()
+                    }
+                    is MarkerPayload.Macro -> {
+                        result.clusters.forEach { cluster ->
+                            macroClusterer.add(cluster.toMarker(mapView, markerIconFactory))
+                        }
+                        mapView.overlays.add(macroClusterer)
+                        macroClusterer.invalidate()
+                    }
                 }
-                mapView.overlays.add(macroClusterer)
-                macroClusterer.invalidate()
+                mapView.invalidate()
             }
-            mapView.invalidate()
         }
 
         refreshMarkers()
@@ -216,6 +246,11 @@ fun TowerMap(
     }
 }
 
+private sealed interface MarkerPayload {
+    data class Detail(val towers: List<Tower>) : MarkerPayload
+    data class Macro(val clusters: List<MapTowerCluster>) : MarkerPayload
+}
+
 private fun MapView.installStaticOverlays(
     context: Context,
     onLocationOverlayReady: (MyLocationNewOverlay) -> Unit,
@@ -245,14 +280,7 @@ private fun Tower.toMarker(
     }
 }
 
-private data class MacroTowerCluster(
-    val latitude: Double,
-    val longitude: Double,
-    val count: Int,
-    val operators: Set<Operator>,
-)
-
-private fun MacroTowerCluster.toMarker(
+private fun MapTowerCluster.toMarker(
     mapView: MapView,
     markerIconFactory: TowerMarkerIconFactory,
 ): Marker = Marker(mapView).apply {
@@ -268,20 +296,6 @@ private fun MacroTowerCluster.toMarker(
         true
     }
 }
-
-private fun buildMacroClusters(towers: List<Tower>): List<MacroTowerCluster> =
-    towers.groupBy { tower ->
-        val latBucket = (tower.latitude * 4).roundToInt() / 4.0
-        val lonBucket = (tower.longitude * 4).roundToInt() / 4.0
-        latBucket to lonBucket
-    }.map { (bucket, grouped) ->
-        MacroTowerCluster(
-            latitude = bucket.first,
-            longitude = bucket.second,
-            count = grouped.size,
-            operators = grouped.flatMap { it.operators }.toSet(),
-        )
-    }
 
 @Composable
 private fun MapRoundButton(
@@ -327,6 +341,8 @@ private val PORTUGAL_CENTER = GeoPoint(39.5, -8.0)
 private const val PORTUGAL_ZOOM = 6.0
 private const val DETAIL_MARKER_ZOOM = 10.0
 private const val MAX_VISIBLE_DETAIL_MARKERS = 1800
+private const val MACRO_CLUSTER_CELL_SIZE = 0.25
+private const val MAP_REFRESH_DEBOUNCE_MS = 120L
 
 private class TowerMarkerIconFactory(private val context: Context) {
     private val cache = mutableMapOf<String, BitmapDrawable>()

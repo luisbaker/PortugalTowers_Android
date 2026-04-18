@@ -25,9 +25,12 @@ class CsvTowerParser {
                     )
                 }
 
-                tower.operators.add(Operator.fromPlmn(parts[9]))
-                tower.bands4g.addAll(splitBands(parts.getOrNull(5).orEmpty()))
-                tower.bands5g.addAll(splitBands(parts.getOrNull(7).orEmpty()))
+                val operator = Operator.fromPlmn(parts[9])
+                tower.operators.add(operator)
+                tower.bands4gByOperator.getOrPut(operator) { linkedSetOf() }
+                    .addAll(splitBands(parts.getOrNull(5).orEmpty()))
+                tower.bands5gByOperator.getOrPut(operator) { linkedSetOf() }
+                    .addAll(splitBands(parts.getOrNull(7).orEmpty()))
             }
         }
 
@@ -38,8 +41,8 @@ class CsvTowerParser {
                 latitude = tower.latitude,
                 longitude = tower.longitude,
                 operators = tower.operators.toSortedSet(compareBy<Operator> { it.ordinal }),
-                bands4g = tower.bands4g.toSortedSet(),
-                bands5g = tower.bands5g.toSortedSet(),
+                bands4gByOperator = tower.bands4gByOperator.toImmutableBands(),
+                bands5gByOperator = tower.bands5gByOperator.toImmutableBands(),
             )
         }
     }
@@ -55,9 +58,12 @@ class CsvTowerParser {
         val latitude: Double,
         val longitude: Double,
         val operators: MutableSet<Operator> = linkedSetOf(),
-        val bands4g: MutableSet<String> = linkedSetOf(),
-        val bands5g: MutableSet<String> = linkedSetOf(),
+        val bands4gByOperator: MutableMap<Operator, MutableSet<String>> = linkedMapOf(),
+        val bands5gByOperator: MutableMap<Operator, MutableSet<String>> = linkedMapOf(),
     )
+
+    private fun Map<Operator, Set<String>>.toImmutableBands(): Map<Operator, Set<String>> =
+        entries.associate { (operator, bands) -> operator to bands.toSortedSet() }
 
     private companion object {
         const val MIN_COLUMNS = 10

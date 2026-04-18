@@ -59,6 +59,7 @@ import androidx.navigation.compose.rememberNavController
 import com.bakertelekom.portugaltowers.AppState
 import com.bakertelekom.portugaltowers.MainViewModel
 import com.bakertelekom.portugaltowers.R
+import com.bakertelekom.portugaltowers.domain.MapTowerCluster
 import com.bakertelekom.portugaltowers.domain.Tower
 import com.bakertelekom.portugaltowers.domain.UserLocation
 import com.bakertelekom.portugaltowers.domain.distanceMeters
@@ -134,13 +135,17 @@ fun PortugalTowersApp(viewModel: MainViewModel) {
                 })
             }
             composable(Destination.Map.route) {
-                TowersContent(appState, onRetry = viewModel::loadTowers) { towers ->
-                    MapScreen(towers)
+                TowersContent(appState, onRetry = viewModel::loadTowers) { towerCount ->
+                    MapScreen(
+                        towerCount = towerCount,
+                        loadVisibleTowers = viewModel::towersInBounds,
+                        loadMacroClusters = viewModel::macroClusters,
+                    )
                 }
             }
             composable(Destination.Nearby.route) {
-                TowersContent(appState, onRetry = viewModel::loadTowers) { towers ->
-                    NearbyScreen(towers)
+                TowersContent(appState, onRetry = viewModel::loadTowers) {
+                    NearbyScreen(loadTowers = viewModel::allTowers)
                 }
             }
             composable(Destination.Settings.route) {
@@ -157,13 +162,13 @@ fun PortugalTowersApp(viewModel: MainViewModel) {
 private fun TowersContent(
     appState: AppState,
     onRetry: () -> Unit,
-    content: @Composable (List<Tower>) -> Unit,
+    content: @Composable (Int) -> Unit,
 ) {
     when (appState) {
         AppState.Empty -> StatusScreen("Sem dados", "A base local nao tem torres para mostrar.", onRetry)
         is AppState.Error -> StatusScreen("Erro ao carregar", appState.message, onRetry)
         AppState.Loading -> StatusScreen("A carregar", "A preparar a base local.", null)
-        is AppState.Ready -> content(appState.towers)
+        is AppState.Ready -> content(appState.towerCount)
     }
 }
 
@@ -224,11 +229,17 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun MapScreen(towers: List<Tower>) {
+private fun MapScreen(
+    towerCount: Int,
+    loadVisibleTowers: suspend (Double, Double, Double, Double, Int) -> List<Tower>,
+    loadMacroClusters: suspend (Double) -> List<MapTowerCluster>,
+) {
     var selectedTower by remember { mutableStateOf<Tower?>(null) }
     Box(Modifier.fillMaxSize()) {
         TowerMap(
-            towers = towers,
+            towerCount = towerCount,
+            loadVisibleTowers = loadVisibleTowers,
+            loadMacroClusters = loadMacroClusters,
             onTowerSelected = { selectedTower = it },
         )
         Surface(
@@ -239,7 +250,7 @@ private fun MapScreen(towers: List<Tower>) {
             tonalElevation = 4.dp,
         ) {
             Text(
-                text = "${towers.size} torres",
+                text = "$towerCount torres",
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelLarge,
             )
@@ -251,9 +262,12 @@ private fun MapScreen(towers: List<Tower>) {
 }
 
 @Composable
-private fun NearbyScreen(towers: List<Tower>) {
+private fun NearbyScreen(loadTowers: suspend () -> List<Tower>) {
     val context = LocalContext.current
     val locationProvider = remember { LocationProvider(context.applicationContext) }
+    var towers by remember { mutableStateOf<List<Tower>?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var reloadToken by remember { mutableStateOf(0) }
     var userLocation by remember { mutableStateOf<UserLocation?>(null) }
     var needsPermission by remember { mutableStateOf(!locationProvider.hasLocationPermission()) }
     var selected by remember { mutableStateOf<Pair<Tower, Double>?>(null) }
@@ -267,7 +281,10 @@ private fun NearbyScreen(towers: List<Tower>) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadToken) {
+        runCatching { loadTowers() }
+            .onSuccess { towers = it }
+            .onFailure { loadError = it.message ?: "Nao foi possivel carregar as torres." }
         if (locationProvider.hasLocationPermission()) {
             needsPermission = false
             userLocation = locationProvider.lastKnownLocation()
@@ -275,6 +292,21 @@ private fun NearbyScreen(towers: List<Tower>) {
     }
 
     when {
+        loadError != null -> StatusScreen(
+            title = "Erro ao carregar",
+            message = loadError ?: "Nao foi possivel carregar as torres.",
+            action = "Tentar de novo",
+            onAction = {
+                loadError = null
+                towers = null
+                reloadToken += 1
+            },
+        )
+        towers == null -> StatusScreen(
+            title = "A carregar",
+            message = "A preparar as torres mais proximas.",
+            onAction = null,
+        )
         needsPermission -> StatusScreen(
             title = "Permissao de localizacao",
             message = "Autoriza a localizacao para calcular as torres mais proximas.",
@@ -296,8 +328,9 @@ private fun NearbyScreen(towers: List<Tower>) {
         )
         else -> {
             val location = userLocation ?: return
-            val nearest = remember(towers, location) {
-                towers.map { tower ->
+            val loadedTowers = towers.orEmpty()
+            val nearest = remember(loadedTowers, location) {
+                loadedTowers.map { tower ->
                     tower to distanceMeters(location.latitude, location.longitude, tower.latitude, tower.longitude)
                 }.sortedBy { it.second }.take(80)
             }
@@ -337,8 +370,8 @@ private fun SettingsScreen(appState: AppState) {
     ) {
         item { SectionLabel("Base local") }
         item {
-            val count = (appState as? AppState.Ready)?.towers?.size ?: 0
-            InfoCard("Fonte de dados", "CSV embutido na app Android.")
+            val count = (appState as? AppState.Ready)?.towerCount ?: 0
+            InfoCard("Fonte de dados", "CSV embutido importado para SQLite local.")
             Spacer(Modifier.height(10.dp))
             InfoCard("Registos", "$count torres agregadas.")
             Spacer(Modifier.height(10.dp))
@@ -346,7 +379,7 @@ private fun SettingsScreen(appState: AppState) {
         }
         item { SectionLabel("Mapa") }
         item {
-            InfoCard("Renderizacao", "Canvas nativo com pan, zoom e selecao de torres.")
+            InfoCard("Renderizacao", "OSM com clusters e queries SQLite por zona visivel.")
         }
     }
 }

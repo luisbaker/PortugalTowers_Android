@@ -31,6 +31,9 @@ class CsvTowerParserTest {
         assertEquals(listOf(Operator.Meo, Operator.Nos), tower.operators.toList())
         assertEquals(setOf("B20", "B3"), tower.bands4g)
         assertEquals(setOf("n1", "n78"), tower.bands5g)
+        assertEquals(emptySet<String>(), tower.bands4gByOperator[Operator.Meo].orEmpty())
+        assertEquals(setOf("B20", "B3"), tower.bands4gByOperator[Operator.Nos])
+        assertEquals(setOf("n1", "n78"), tower.bands5gByOperator[Operator.Nos])
     }
 
     @Test

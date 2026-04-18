@@ -44,6 +44,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bakertelekom.portugaltowers.R
+import com.bakertelekom.portugaltowers.domain.Operator
 import com.bakertelekom.portugaltowers.domain.Tower
 import com.bakertelekom.portugaltowers.domain.formatDistance
 import java.util.Locale
@@ -108,9 +109,14 @@ fun TowerDetailDialog(
 
             if (tower.bands4g.isNotEmpty() || tower.bands5g.isNotEmpty()) {
                 InfoBlock(title = "Frequencias", icon = Icons.Default.SignalCellularAlt) {
-                    if (tower.bands4g.isNotEmpty()) InfoLine("4G", tower.bands4g.joinToString(", "))
-                    if (tower.bands4g.isNotEmpty() && tower.bands5g.isNotEmpty()) Spacer(Modifier.height(8.dp))
-                    if (tower.bands5g.isNotEmpty()) InfoLine("5G", tower.bands5g.joinToString(", "))
+                    tower.operators.forEachIndexed { index, operator ->
+                        if (index > 0) Spacer(Modifier.height(10.dp))
+                        OperatorFrequencyLine(
+                            operator = operator,
+                            bands4g = tower.bands4gByOperator[operator].orEmpty(),
+                            bands5g = tower.bands5gByOperator[operator].orEmpty(),
+                        )
+                    }
                 }
             }
 
@@ -136,6 +142,23 @@ fun TowerDetailDialog(
                 Text("Fechar")
             }
         }
+    }
+}
+
+@Composable
+private fun OperatorFrequencyLine(
+    operator: Operator,
+    bands4g: Set<String>,
+    bands5g: Set<String>,
+) {
+    val lines = listOfNotNull(
+        bands4g.takeIf { it.isNotEmpty() }?.let { "4G: ${it.joinToString(", ")}" },
+        bands5g.takeIf { it.isNotEmpty() }?.let { "5G: ${it.joinToString(", ")}" },
+    )
+    if (lines.isEmpty()) {
+        InfoLine(operator.displayName, "Sem frequencias registadas")
+    } else {
+        InfoLine(operator.displayName, lines.joinToString("\n"))
     }
 }
 
