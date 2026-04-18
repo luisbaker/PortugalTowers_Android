@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.bakertelekom.portugaltowers.domain.Tower
@@ -52,6 +53,7 @@ fun TowerMap(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { canvasSize = it }
                 .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         scale = (scale * zoom).coerceIn(0.75f, 8f)
@@ -69,7 +71,6 @@ fun TowerMap(
                     }
                 },
         ) {
-            canvasSize = IntSize(size.width.toInt(), size.height.toInt())
             drawRect(surface)
             drawRoundRect(
                 color = land,

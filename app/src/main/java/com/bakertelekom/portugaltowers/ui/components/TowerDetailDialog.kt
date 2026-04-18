@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,18 +49,18 @@ fun TowerDetailDialog(
             }
         },
         confirmButton = {
-            Row {
-                TextButton(
-                    onClick = {
-                        val uri = Uri.parse("geo:${tower.latitude},${tower.longitude}?q=${tower.latitude},${tower.longitude}(Portugal Towers)")
-                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                    },
-                ) {
-                    Text(stringResource(R.string.open_maps))
-                }
-                TextButton(onClick = onDismiss) {
-                    Text("Fechar")
-                }
+            TextButton(
+                onClick = {
+                    val uri = Uri.parse("geo:${tower.latitude},${tower.longitude}?q=${tower.latitude},${tower.longitude}(Portugal Towers)")
+                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                },
+            ) {
+                Text(stringResource(R.string.open_maps))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar")
             }
         },
     )

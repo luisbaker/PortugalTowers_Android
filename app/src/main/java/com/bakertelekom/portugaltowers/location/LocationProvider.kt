@@ -1,5 +1,6 @@
 package com.bakertelekom.portugaltowers.location
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -12,6 +13,7 @@ class LocationProvider(private val context: Context) {
         hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) ||
             hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
 
+    @SuppressLint("MissingPermission")
     fun lastKnownLocation(): UserLocation? {
         if (!hasLocationPermission()) return null
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
