@@ -64,9 +64,7 @@ fun TowerMap(
                     .target(LatLng(39.5, -8.0))
                     .zoom(5.7)
                     .build()
-                map.setStyle(
-                    Style.Builder().fromUri(MAP_STYLE_URL),
-                ) { style ->
+                map.setStyle(Style.Builder().fromJson(OSM_RASTER_STYLE)) { style ->
                     ensureTowerLayer(style)
                     updateTowerSource(style, towers)
                 }
@@ -163,8 +161,27 @@ private fun updateTowerSource(style: Style, towers: List<Tower>) {
 private val Tower.mapFeatureId: String
     get() = "$id:$latitude:$longitude"
 
-private const val MAP_STYLE_URL = "https://demotiles.maplibre.org/style.json"
 private const val TOWER_SOURCE_ID = "portugal-towers-source"
 private const val TOWER_LAYER_ID = "portugal-towers-layer"
 private const val PROPERTY_ID = "tower_id"
 private const val PROPERTY_OPERATOR = "operator"
+private const val OSM_RASTER_STYLE = """
+{
+  "version": 8,
+  "sources": {
+    "osm": {
+      "type": "raster",
+      "tiles": ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      "tileSize": 256,
+      "attribution": "© OpenStreetMap contributors"
+    }
+  },
+  "layers": [
+    {
+      "id": "osm",
+      "type": "raster",
+      "source": "osm"
+    }
+  ]
+}
+"""
