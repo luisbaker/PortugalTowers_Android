@@ -35,6 +35,8 @@ Isto e intencional:
 
 Os dados sao comunitarios e informativos. As localizacoes podem ser aproximadas e podem existir antenas em falta ou desatualizadas.
 
+As localizacoes das torres usadas neste projeto foram recolhidas, organizadas e corrigidas por voluntarios da comunidade CellMapper Portugal, incluindo membros do grupo Telegram cellmapperpt. Este trabalho comunitario existe precisamente porque nao ha uma base oficial aberta e reutilizavel com a localizacao das torres em Portugal.
+
 ## Mapa
 
 O mapa usa OpenStreetMap como base padrao atraves de osmdroid. Os pontos das torres sao desenhados com marcadores nativos e clustering:
@@ -91,7 +93,8 @@ Referencias para comparacao:
 
 Creditos e referencias:
 
-- Comunidade portuguesa CellMapper.
+- Voluntarios da comunidade CellMapper Portugal.
+- Grupo Telegram cellmapperpt, que recolhe, corrige e discute localizacoes de torres em Portugal.
 - OpenStreetMap e respetivos colaboradores.
 - Operadoras identificadas: MEO, NOS, Vodafone e Digi.
 - Grupo Telegram: https://t.me/cellmapperpt
