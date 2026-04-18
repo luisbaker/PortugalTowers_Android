@@ -92,13 +92,15 @@ fun PortugalTowersApp(viewModel: MainViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(currentDestination.title) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
+            if (currentDestination != Destination.Map) {
+                TopAppBar(
+                    title = { Text(currentDestination.title) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                )
+            }
         },
         bottomBar = {
             NavigationBar {

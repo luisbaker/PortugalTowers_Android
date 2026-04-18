@@ -1,36 +1,42 @@
 package com.bakertelekom.portugaltowers.ui.map
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import android.graphics.PointF
+import android.os.Bundle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.bakertelekom.portugaltowers.domain.Operator
 import com.bakertelekom.portugaltowers.domain.Tower
-import com.bakertelekom.portugaltowers.ui.components.composeColor
-import kotlin.math.max
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression.get
+import org.maplibre.android.style.expressions.Expression.literal
+import org.maplibre.android.style.expressions.Expression.match
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
 
 @Composable
 fun TowerMap(
@@ -38,120 +44,127 @@ fun TowerMap(
     onTowerSelected: (Tower) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
-    val surface = MaterialTheme.colorScheme.surface
-    val land = MaterialTheme.colorScheme.secondaryContainer
-    val outline = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val towerLookup = remember(towers) { towers.associateBy { it.mapFeatureId } }
+    var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged { canvasSize = it }
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(0.75f, 8f)
-                        offset += pan
-                        val maxPan = max(size.width, size.height).toFloat() * scale
-                        offset = Offset(
-                            x = offset.x.coerceIn(-maxPan, maxPan),
-                            y = offset.y.coerceIn(-maxPan, maxPan),
-                        )
+    val mapView = remember {
+        MapLibre.getInstance(context)
+        MapView(context).apply {
+            onCreate(Bundle())
+            getMapAsync { map ->
+                mapLibreMap = map
+                map.uiSettings.apply {
+                    isCompassEnabled = true
+                    isLogoEnabled = false
+                    isAttributionEnabled = true
+                }
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(39.5, -8.0))
+                    .zoom(5.7)
+                    .build()
+                map.setStyle(
+                    Style.Builder().fromUri(MAP_STYLE_URL),
+                ) { style ->
+                    ensureTowerLayer(style)
+                    updateTowerSource(style, towers)
+                }
+                map.addOnMapClickListener { latLng ->
+                    val point = map.projection.toScreenLocation(latLng)
+                    val features = map.queryRenderedFeatures(point, TOWER_LAYER_ID)
+                    val featureId = features.firstOrNull()?.getStringProperty(PROPERTY_ID)
+                    val tower = featureId?.let { towerLookup[it] }
+                    if (tower != null) {
+                        onTowerSelected(tower)
+                        true
+                    } else {
+                        false
                     }
                 }
-                .pointerInput(towers, scale, offset, canvasSize) {
-                    detectTapGestures { tap ->
-                        nearestTower(tap, towers, canvasSize, scale, offset)?.let(onTowerSelected)
-                    }
-                },
-        ) {
-            drawRect(surface)
-            drawRoundRect(
-                color = land,
-                topLeft = Offset(28.dp.toPx(), 36.dp.toPx()),
-                size = Size(size.width - 56.dp.toPx(), size.height - 88.dp.toPx()),
-                cornerRadius = CornerRadius(32.dp.toPx(), 32.dp.toPx()),
-            )
-            drawRoundRect(
-                color = outline,
-                topLeft = Offset(28.dp.toPx(), 36.dp.toPx()),
-                size = Size(size.width - 56.dp.toPx(), size.height - 88.dp.toPx()),
-                cornerRadius = CornerRadius(32.dp.toPx(), 32.dp.toPx()),
-            )
-
-            towers.forEach { tower ->
-                val point = tower.toScreenPoint(size, scale, offset)
-                drawCircle(
-                    color = tower.primaryOperator.composeColor(),
-                    radius = max(2.5.dp.toPx(), 4.6.dp.toPx() / scale),
-                    center = point,
-                )
             }
         }
+    }
 
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            tonalElevation = 2.dp,
-        ) {
-            Text(
-                text = "Arrasta para mover. Junta os dedos para zoom. Toca numa torre.",
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.labelMedium,
-            )
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> Unit
+            }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onDestroy()
+        }
+    }
+
+    LaunchedEffect(towers, mapLibreMap) {
+        mapLibreMap?.getStyle { style ->
+            ensureTowerLayer(style)
+            updateTowerSource(style, towers)
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { mapView },
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
-private fun nearestTower(
-    tap: Offset,
-    towers: List<Tower>,
-    canvasSize: IntSize,
-    scale: Float,
-    offset: Offset,
-): Tower? {
-    if (canvasSize.width <= 0 || canvasSize.height <= 0) return null
-    val size = Size(canvasSize.width.toFloat(), canvasSize.height.toFloat())
-    var best: Tower? = null
-    var bestDistance = Float.MAX_VALUE
-    towers.forEach { tower ->
-        val point = tower.toScreenPoint(size, scale, offset)
-        val distance = (point - tap).getDistanceSquared()
-        if (distance < bestDistance) {
-            bestDistance = distance
-            best = tower
-        }
+private fun ensureTowerLayer(style: Style) {
+    if (style.getSource(TOWER_SOURCE_ID) == null) {
+        style.addSource(GeoJsonSource(TOWER_SOURCE_ID, FeatureCollection.fromFeatures(emptyList())))
     }
-    return best.takeIf { bestDistance < 28f * 28f }
+    if (style.getLayer(TOWER_LAYER_ID) == null) {
+        style.addLayer(
+            CircleLayer(TOWER_LAYER_ID, TOWER_SOURCE_ID).withProperties(
+                circleRadius(7f),
+                circleStrokeWidth(1.8f),
+                circleStrokeColor("#FFFFFF"),
+                circleColor(
+                    match(
+                        get(PROPERTY_OPERATOR),
+                        literal(Operator.Meo.name), literal("#005BAC"),
+                        literal(Operator.Nos.name), literal("#1A1A1A"),
+                        literal(Operator.Vodafone.name), literal("#E60000"),
+                        literal(Operator.Digi.name), literal("#00AA44"),
+                        literal("#777777"),
+                    ),
+                ),
+            ),
+        )
+    }
 }
 
-private fun Tower.toScreenPoint(
-    size: Size,
-    scale: Float,
-    offset: Offset,
-): Offset {
-    val base = Offset(
-        x = longitudeToX(longitude, size.width),
-        y = latitudeToY(latitude, size.height),
-    )
-    val center = Offset(size.width / 2f, size.height / 2f)
-    return Offset(
-        x = ((base.x - center.x) * scale) + center.x + offset.x,
-        y = ((base.y - center.y) * scale) + center.y + offset.y,
+private fun updateTowerSource(style: Style, towers: List<Tower>) {
+    val source = style.getSourceAs<GeoJsonSource>(TOWER_SOURCE_ID) ?: return
+    source.setGeoJson(
+        FeatureCollection.fromFeatures(
+            towers.map { tower ->
+                Feature.fromGeometry(
+                    Point.fromLngLat(tower.longitude, tower.latitude),
+                ).apply {
+                    addStringProperty(PROPERTY_ID, tower.mapFeatureId)
+                    addStringProperty(PROPERTY_OPERATOR, tower.primaryOperator.name)
+                }
+            },
+        ),
     )
 }
 
-private fun longitudeToX(longitude: Double, width: Float): Float =
-    (((longitude + 32.5) / 26.5) * width).toFloat().coerceIn(0f, width)
+private val Tower.mapFeatureId: String
+    get() = "$id:$latitude:$longitude"
 
-private fun latitudeToY(latitude: Double, height: Float): Float =
-    (height - ((latitude - 32.0) / 10.5) * height).toFloat().coerceIn(0f, height)
+private const val MAP_STYLE_URL = "https://demotiles.maplibre.org/style.json"
+private const val TOWER_SOURCE_ID = "portugal-towers-source"
+private const val TOWER_LAYER_ID = "portugal-towers-layer"
+private const val PROPERTY_ID = "tower_id"
+private const val PROPERTY_OPERATOR = "operator"
