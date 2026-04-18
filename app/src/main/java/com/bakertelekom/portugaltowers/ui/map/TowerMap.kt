@@ -1,32 +1,56 @@
 package com.bakertelekom.portugaltowers.ui.map
 
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.bakertelekom.portugaltowers.domain.Operator
 import com.bakertelekom.portugaltowers.domain.Tower
+import org.osmdroid.bonuspack.clustering.RadiusMarkerClusterer
+import org.osmdroid.bonuspack.clustering.StaticCluster
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.compass.CompassOverlay
+import org.osmdroid.views.overlay.compass.InternalCompassOrientationProvider
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 @Composable
 fun TowerMap(
@@ -37,6 +61,33 @@ fun TowerMap(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val markerIconFactory = remember { TowerMarkerIconFactory(context) }
+    var locationOverlay by remember { mutableStateOf<MyLocationNewOverlay?>(null) }
+    val clusterer = remember {
+        object : RadiusMarkerClusterer(context) {
+            override fun buildClusterMarker(cluster: StaticCluster, mapView: MapView): Marker {
+                val operators = mutableSetOf<Operator>()
+                for (index in 0 until cluster.size) {
+                    val item = cluster.getItem(index)
+                    @Suppress("UNCHECKED_CAST")
+                    operators.addAll(item.relatedObject as? Set<Operator> ?: emptySet())
+                }
+                return Marker(mapView).apply {
+                    position = GeoPoint(cluster.position.latitude, cluster.position.longitude)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    icon = markerIconFactory.clusterIconFor(operators, cluster.size)
+                    infoWindow = null
+                    setOnMarkerClickListener { clickedMarker, map ->
+                        map.controller.stopAnimation(false)
+                        map.controller.setZoom((map.zoomLevelDouble + 1.6).coerceAtMost(19.0))
+                        map.controller.setCenter(GeoPoint(clickedMarker.position.latitude, clickedMarker.position.longitude))
+                        true
+                    }
+                }
+            }
+        }.apply {
+            setRadius(230)
+        }
+    }
     val mapView = remember {
         Configuration.getInstance().userAgentValue = context.packageName
         MapView(context).apply {
@@ -45,8 +96,19 @@ fun TowerMap(
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             minZoomLevel = 5.0
             maxZoomLevel = 19.0
-            controller.setZoom(6.0)
-            controller.setCenter(GeoPoint(39.5, -8.0))
+            controller.setZoom(PORTUGAL_ZOOM)
+            controller.setCenter(PORTUGAL_CENTER)
+
+            val compassOverlay = CompassOverlay(context, InternalCompassOrientationProvider(context), this)
+            compassOverlay.enableCompass()
+            overlays.add(compassOverlay)
+
+            if (context.hasLocationPermission()) {
+                val overlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this)
+                overlay.enableMyLocation()
+                overlays.add(overlay)
+                locationOverlay = overlay
+            }
         }
     }
 
@@ -68,13 +130,21 @@ fun TowerMap(
 
     LaunchedEffect(towers) {
         mapView.overlays.clear()
+        clusterer.items.clear()
+        mapView.overlays.add(CompassOverlay(context, InternalCompassOrientationProvider(context), mapView).apply { enableCompass() })
+        if (context.hasLocationPermission()) {
+            val overlay = MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply { enableMyLocation() }
+            mapView.overlays.add(overlay)
+            locationOverlay = overlay
+        }
         towers.forEach { tower ->
-            mapView.overlays.add(
+            clusterer.add(
                 Marker(mapView).apply {
                     position = GeoPoint(tower.latitude, tower.longitude)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     icon = markerIconFactory.iconFor(tower.operators)
                     infoWindow = null
+                    relatedObject = tower.operators
                     setOnMarkerClickListener { _, _ ->
                         onTowerSelected(tower)
                         true
@@ -82,6 +152,8 @@ fun TowerMap(
                 },
             )
         }
+        mapView.overlays.add(clusterer)
+        clusterer.invalidate()
         mapView.invalidate()
     }
 
@@ -90,8 +162,59 @@ fun TowerMap(
             factory = { mapView },
             modifier = Modifier.fillMaxSize(),
         )
+        MapRoundButton(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp),
+            icon = Icons.Default.MyLocation,
+            contentDescription = "Ir para a minha localizacao",
+            onClick = {
+                val location = locationOverlay?.myLocation
+                if (location != null) {
+                    mapView.controller.animateTo(location)
+                    mapView.controller.setZoom(16.0)
+                }
+            },
+        )
+        MapRoundButton(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 74.dp, end = 16.dp),
+            icon = Icons.Default.Explore,
+            contentDescription = "Centrar Portugal",
+            onClick = {
+                mapView.mapOrientation = 0f
+                mapView.controller.animateTo(PORTUGAL_CENTER)
+                mapView.controller.setZoom(PORTUGAL_ZOOM)
+            },
+        )
     }
 }
+
+@Composable
+private fun MapRoundButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(48.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        shadowElevation = 6.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun Context.hasLocationPermission(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
 private val OSM_SOURCE = object : OnlineTileSourceBase(
     "OSM",
@@ -108,13 +231,23 @@ private val OSM_SOURCE = object : OnlineTileSourceBase(
             MapTileIndex.getY(pMapTileIndex) + ".png"
 }
 
+private val PORTUGAL_CENTER = GeoPoint(39.5, -8.0)
+private const val PORTUGAL_ZOOM = 6.0
+
 private class TowerMarkerIconFactory(private val context: Context) {
     private val cache = mutableMapOf<String, BitmapDrawable>()
+    private val clusterCache = mutableMapOf<String, BitmapDrawable>()
 
     fun iconFor(operators: Set<Operator>): BitmapDrawable {
         val normalized = operators.ifEmpty { setOf(Operator.Unknown) }
         val key = normalized.sortedBy { it.ordinal }.joinToString("_") { it.name }
         return cache.getOrPut(key) { createIcon(normalized) }
+    }
+
+    fun clusterIconFor(operators: Set<Operator>, count: Int): BitmapDrawable {
+        val normalized = operators.ifEmpty { setOf(Operator.Unknown) }
+        val key = normalized.sortedBy { it.ordinal }.joinToString("_") { it.name } + "_$count"
+        return clusterCache.getOrPut(key) { createClusterIcon(normalized, count) }
     }
 
     private fun createIcon(operators: Set<Operator>): BitmapDrawable {
@@ -169,6 +302,44 @@ private class TowerMarkerIconFactory(private val context: Context) {
         canvas.drawLine(center - 4f * density, 22f * density, center + 4f * density, 22f * density, paint)
         canvas.drawLine(center - towerHalfWidth, bottom, center + 4f * density, 22f * density, paint)
         canvas.drawLine(center + towerHalfWidth, bottom, center - 4f * density, 22f * density, paint)
+
+        return BitmapDrawable(context.resources, bitmap)
+    }
+
+    private fun createClusterIcon(operators: Set<Operator>, count: Int): BitmapDrawable {
+        val density = context.resources.displayMetrics.density
+        val size = (48 * density).toInt()
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val rect = RectF(0f, 0f, size.toFloat(), size.toFloat())
+        val ordered = operators
+            .filter { it != Operator.Unknown }
+            .ifEmpty { listOf(Operator.Unknown) }
+            .sortedBy { it.ordinal }
+            .take(4)
+        val sweep = 360f / ordered.size
+
+        ordered.forEachIndexed { index, operator ->
+            paint.style = Paint.Style.FILL
+            paint.color = operator.brandColor.toInt()
+            canvas.drawArc(rect, 180f + (index * sweep), sweep, true, paint)
+        }
+
+        val center = size / 2f
+        paint.color = android.graphics.Color.WHITE
+        canvas.drawCircle(center, center, center * 0.78f, paint)
+
+        paint.color = android.graphics.Color.parseColor("#263238")
+        paint.isFakeBoldText = true
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = when {
+            count < 100 -> size * 0.38f
+            count < 1000 -> size * 0.31f
+            else -> size * 0.23f
+        }
+        val textOffset = (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(count.toString(), center, center - textOffset, paint)
 
         return BitmapDrawable(context.resources, bitmap)
     }
