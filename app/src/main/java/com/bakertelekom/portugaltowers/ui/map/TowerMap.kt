@@ -41,6 +41,9 @@ import com.bakertelekom.portugaltowers.domain.Tower
 import org.osmdroid.bonuspack.clustering.RadiusMarkerClusterer
 import org.osmdroid.bonuspack.clustering.StaticCluster
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
@@ -51,6 +54,8 @@ import org.osmdroid.views.overlay.compass.InternalCompassOrientationProvider
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 fun TowerMap(
@@ -62,6 +67,7 @@ fun TowerMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     val markerIconFactory = remember { TowerMarkerIconFactory(context) }
     var locationOverlay by remember { mutableStateOf<MyLocationNewOverlay?>(null) }
+    val macroClusterer = remember { RadiusMarkerClusterer(context).apply { setRadius(280) } }
     val clusterer = remember {
         object : RadiusMarkerClusterer(context) {
             override fun buildClusterMarker(cluster: StaticCluster, mapView: MapView): Marker {
@@ -89,7 +95,13 @@ fun TowerMap(
         }
     }
     val mapView = remember {
-        Configuration.getInstance().userAgentValue = context.packageName
+        Configuration.getInstance().apply {
+            userAgentValue = context.packageName
+            osmdroidBasePath = File(context.cacheDir, "osmdroid")
+            osmdroidTileCache = File(osmdroidBasePath, "tiles")
+            tileFileSystemCacheMaxBytes = 200L * 1024L * 1024L
+            tileFileSystemCacheTrimBytes = 160L * 1024L * 1024L
+        }
         MapView(context).apply {
             setTileSource(OSM_SOURCE)
             setMultiTouchControls(true)
@@ -98,6 +110,7 @@ fun TowerMap(
             maxZoomLevel = 19.0
             controller.setZoom(PORTUGAL_ZOOM)
             controller.setCenter(PORTUGAL_CENTER)
+            setScrollableAreaLimitLatitude(43.2, 30.0, 0)
 
             val compassOverlay = CompassOverlay(context, InternalCompassOrientationProvider(context), this)
             compassOverlay.enableCompass()
@@ -129,32 +142,44 @@ fun TowerMap(
     }
 
     LaunchedEffect(towers) {
-        mapView.overlays.clear()
-        clusterer.items.clear()
-        mapView.overlays.add(CompassOverlay(context, InternalCompassOrientationProvider(context), mapView).apply { enableCompass() })
-        if (context.hasLocationPermission()) {
-            val overlay = MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply { enableMyLocation() }
-            mapView.overlays.add(overlay)
-            locationOverlay = overlay
-        }
-        towers.forEach { tower ->
-            clusterer.add(
-                Marker(mapView).apply {
-                    position = GeoPoint(tower.latitude, tower.longitude)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon = markerIconFactory.iconFor(tower.operators)
-                    infoWindow = null
-                    relatedObject = tower.operators
-                    setOnMarkerClickListener { _, _ ->
-                        onTowerSelected(tower)
-                        true
+        mapView.installStaticOverlays(context) { locationOverlay = it }
+        fun refreshMarkers() {
+            val detailed = mapView.zoomLevelDouble >= DETAIL_MARKER_ZOOM
+            mapView.overlays.remove(clusterer)
+            mapView.overlays.remove(macroClusterer)
+            clusterer.items.clear()
+            macroClusterer.items.clear()
+            if (detailed) {
+                towers.asSequence()
+                    .filter { mapView.boundingBox.contains(GeoPoint(it.latitude, it.longitude)) }
+                    .take(MAX_VISIBLE_DETAIL_MARKERS)
+                    .forEach { tower ->
+                        clusterer.add(tower.toMarker(mapView, markerIconFactory, onTowerSelected))
                     }
-                },
-            )
+                mapView.overlays.add(clusterer)
+                clusterer.invalidate()
+            } else {
+                buildMacroClusters(towers).forEach { cluster ->
+                    macroClusterer.add(cluster.toMarker(mapView, markerIconFactory))
+                }
+                mapView.overlays.add(macroClusterer)
+                macroClusterer.invalidate()
+            }
+            mapView.invalidate()
         }
-        mapView.overlays.add(clusterer)
-        clusterer.invalidate()
-        mapView.invalidate()
+
+        refreshMarkers()
+        mapView.addMapListener(object : MapListener {
+            override fun onScroll(event: ScrollEvent?): Boolean {
+                refreshMarkers()
+                return false
+            }
+
+            override fun onZoom(event: ZoomEvent?): Boolean {
+                refreshMarkers()
+                return false
+            }
+        })
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -190,6 +215,73 @@ fun TowerMap(
         )
     }
 }
+
+private fun MapView.installStaticOverlays(
+    context: Context,
+    onLocationOverlayReady: (MyLocationNewOverlay) -> Unit,
+) {
+    overlays.clear()
+    overlays.add(CompassOverlay(context, InternalCompassOrientationProvider(context), this).apply { enableCompass() })
+    if (context.hasLocationPermission()) {
+        val overlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply { enableMyLocation() }
+        overlays.add(overlay)
+        onLocationOverlayReady(overlay)
+    }
+}
+
+private fun Tower.toMarker(
+    mapView: MapView,
+    markerIconFactory: TowerMarkerIconFactory,
+    onTowerSelected: (Tower) -> Unit,
+): Marker = Marker(mapView).apply {
+    position = GeoPoint(latitude, longitude)
+    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+    icon = markerIconFactory.iconFor(operators)
+    infoWindow = null
+    relatedObject = operators
+    setOnMarkerClickListener { _, _ ->
+        onTowerSelected(this@toMarker)
+        true
+    }
+}
+
+private data class MacroTowerCluster(
+    val latitude: Double,
+    val longitude: Double,
+    val count: Int,
+    val operators: Set<Operator>,
+)
+
+private fun MacroTowerCluster.toMarker(
+    mapView: MapView,
+    markerIconFactory: TowerMarkerIconFactory,
+): Marker = Marker(mapView).apply {
+    position = GeoPoint(latitude, longitude)
+    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+    icon = markerIconFactory.clusterIconFor(operators, count)
+    infoWindow = null
+    relatedObject = operators
+    setOnMarkerClickListener { clickedMarker, map ->
+        map.controller.stopAnimation(false)
+        map.controller.setZoom((map.zoomLevelDouble + 1.8).coerceAtMost(19.0))
+        map.controller.setCenter(GeoPoint(clickedMarker.position.latitude, clickedMarker.position.longitude))
+        true
+    }
+}
+
+private fun buildMacroClusters(towers: List<Tower>): List<MacroTowerCluster> =
+    towers.groupBy { tower ->
+        val latBucket = (tower.latitude * 4).roundToInt() / 4.0
+        val lonBucket = (tower.longitude * 4).roundToInt() / 4.0
+        latBucket to lonBucket
+    }.map { (bucket, grouped) ->
+        MacroTowerCluster(
+            latitude = bucket.first,
+            longitude = bucket.second,
+            count = grouped.size,
+            operators = grouped.flatMap { it.operators }.toSet(),
+        )
+    }
 
 @Composable
 private fun MapRoundButton(
@@ -233,6 +325,8 @@ private val OSM_SOURCE = object : OnlineTileSourceBase(
 
 private val PORTUGAL_CENTER = GeoPoint(39.5, -8.0)
 private const val PORTUGAL_ZOOM = 6.0
+private const val DETAIL_MARKER_ZOOM = 10.0
+private const val MAX_VISIBLE_DETAIL_MARKERS = 1800
 
 private class TowerMarkerIconFactory(private val context: Context) {
     private val cache = mutableMapOf<String, BitmapDrawable>()
