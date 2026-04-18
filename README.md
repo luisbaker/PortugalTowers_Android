@@ -54,9 +54,15 @@ Em Portugal, os dados publicos oficiais sobre antenas moveis nao estao disponibi
 
 ## Posicao sobre open data
 
-Portugal Towers defende que a localizacao das estacoes base e torres de telecomunicacoes deve existir em open data, num formato publico, descarregavel, reutilizavel e atualizado regularmente.
+Portugal Towers defende que Portugal deve adotar uma politica de transparencia semelhante a pratica francesa da ANFR.
 
-A ANACOM publica informacao estatistica agregada sobre redes moveis, incluindo numeros de estacoes 5G por operador, concelho ou freguesia. Essa informacao e util, mas nao resolve o problema principal: os cidadaos, investigadores, autarquias e comunidades tecnicas continuam sem uma base aberta e pratica com a localizacao das infraestruturas de rede.
+Em Franca, a ANFR disponibiliza o Cartoradio e um portal de open data com informacao publica sobre antenas, suportes radioeletricos, instalacoes acima de 5 watts e medicoes de campos eletromagneticos. Estes dados podem ser consultados em mapa, descarregados e reutilizados por cidadaos, investigadores, autarquias, jornalistas e projetos independentes.
+
+Portugal devia ter o mesmo nivel de transparencia.
+
+A ANACOM publica estatisticas agregadas sobre redes moveis, incluindo totais de estacoes 5G por operador, concelho ou freguesia. Isso e util, mas e insuficiente. Nao substitui uma base publica, descarregavel e reutilizavel com a localizacao das infraestruturas de rede.
+
+A critica de Portugal Towers e simples: se a ANFR consegue publicar dados de antenas em Franca sem comprometer a seguranca das redes, a ANACOM tambem devia conseguir publicar dados equivalentes em Portugal.
 
 Esta falta de transparencia prejudica:
 
@@ -66,9 +72,22 @@ Esta falta de transparencia prejudica:
 - projetos comunitarios como CellMapper, OpenStreetMap e Portugal Towers;
 - confianca publica na evolucao das redes moveis.
 
-A existencia de uma base aberta nao obriga a expor informacao sensivel de seguranca ou configuracoes internas das redes. Bastaria publicar dados civicos essenciais, como localizacao aproximada, operador, tecnologia declarada, estado ativo/inativo e data de atualizacao.
+A existencia de uma base aberta nao obriga a expor configuracoes internas, parametros sensiveis ou detalhes operacionais das redes. Bastaria publicar dados civicos essenciais, como:
+
+- localizacao do suporte ou localizacao publica aproximada quando houver justificacao tecnica real;
+- operador;
+- tecnologias declaradas;
+- faixas ou bandas publicamente autorizadas;
+- estado do site, por exemplo autorizado, ativo ou desativado;
+- data da ultima atualizacao.
 
 Enquanto essa informacao nao existir em open data oficial, Portugal Towers assume uma abordagem comunitaria: organizar, visualizar e tornar mais acessiveis dados colaborativos, deixando claro que a app e independente, informativa e nao oficial.
+
+Referencias para comparacao:
+
+- ANFR Open Data: https://data.anfr.fr/
+- Cartoradio: https://www.cartoradio.fr/
+- Data.gouv.fr, instalacoes radioeletricas: https://www.data.gouv.fr/datasets/donnees-sur-les-installations-radioelectriques-de-plus-de-5-watts-1/
 
 Creditos e referencias:
 
