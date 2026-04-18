@@ -173,6 +173,6 @@ class TowerDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null,
 
     private companion object {
         const val DB_NAME = "portugal_towers.db"
-        const val DB_VERSION = 3
+        const val DB_VERSION = 4
     }
 }

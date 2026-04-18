@@ -40,7 +40,7 @@ class CsvTowerParserTest {
     fun parse_uses_id_as_fallback_address_and_skips_invalid_rows() {
         val csv = """
             id;address;latitude;longitude;col4;bands4g;col6;bands5g;col8;plmn
-            ; ;38.7223;-9.1393;;;;;;26811
+            ; ;38.7223;-9.1393;;;;;;26802
             T2;Rua B;not-a-number;-9.1393;;;;;;26806
             T3;Rua C;41.1579;-8.6291;;;;;;99999
         """.trimIndent()

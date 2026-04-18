@@ -75,7 +75,36 @@ fun TowerMap(
     val markerIconFactory = remember { TowerMarkerIconFactory(context) }
     var locationOverlay by remember { mutableStateOf<MyLocationNewOverlay?>(null) }
     var refreshJob by remember { mutableStateOf<Job?>(null) }
-    val macroClusterer = remember { RadiusMarkerClusterer(context).apply { setRadius(280) } }
+    val macroClusterer = remember {
+        object : RadiusMarkerClusterer(context) {
+            override fun buildClusterMarker(cluster: StaticCluster, mapView: MapView): Marker {
+                var count = 0
+                val operators = mutableSetOf<Operator>()
+                for (index in 0 until cluster.size) {
+                    val item = cluster.getItem(index)
+                    val mapCluster = item.relatedObject as? MapTowerCluster
+                    if (mapCluster != null) {
+                        count += mapCluster.count
+                        operators.addAll(mapCluster.operators)
+                    } else {
+                        count += 1
+                    }
+                }
+                return Marker(mapView).apply {
+                    position = GeoPoint(cluster.position.latitude, cluster.position.longitude)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    icon = markerIconFactory.clusterIconFor(operators, count)
+                    infoWindow = null
+                    setOnMarkerClickListener { clickedMarker, map ->
+                        map.controller.stopAnimation(false)
+                        map.controller.setZoom((map.zoomLevelDouble + 1.8).coerceAtMost(19.0))
+                        map.controller.setCenter(GeoPoint(clickedMarker.position.latitude, clickedMarker.position.longitude))
+                        true
+                    }
+                }
+            }
+        }.apply { setRadius(280) }
+    }
     val clusterer = remember {
         object : RadiusMarkerClusterer(context) {
             override fun buildClusterMarker(cluster: StaticCluster, mapView: MapView): Marker {
@@ -288,7 +317,7 @@ private fun MapTowerCluster.toMarker(
     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
     icon = markerIconFactory.clusterIconFor(operators, count)
     infoWindow = null
-    relatedObject = operators
+    relatedObject = this@toMarker
     setOnMarkerClickListener { clickedMarker, map ->
         map.controller.stopAnimation(false)
         map.controller.setZoom((map.zoomLevelDouble + 1.8).coerceAtMost(19.0))

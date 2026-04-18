@@ -10,6 +10,8 @@ class OperatorTest {
     fun fromPlmn_maps_known_codes_and_defaults_to_unknown() {
         assertEquals(Operator.Meo, Operator.fromPlmn("26806"))
         assertEquals(Operator.Nos, Operator.fromPlmn(" 26803 "))
+        assertEquals(Operator.Vodafone, Operator.fromPlmn("26801"))
+        assertEquals(Operator.Digi, Operator.fromPlmn("26802"))
         assertEquals(Operator.Unknown, Operator.fromPlmn("00000"))
     }
 
