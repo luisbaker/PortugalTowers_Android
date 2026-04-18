@@ -91,7 +91,7 @@ fun TowerMap(
                 }
             }
         }.apply {
-            setRadius(230)
+            setRadius(250)
         }
     }
     val mapView = remember {
@@ -346,11 +346,15 @@ private class TowerMarkerIconFactory(private val context: Context) {
 
     private fun createIcon(operators: Set<Operator>): BitmapDrawable {
         val density = context.resources.displayMetrics.density
-        val size = (46 * density).toInt()
+        val size = (105 * density).toInt()
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+        val scale = size / 230f
+        canvas.scale(scale, scale)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        val rect = RectF(0f, 0f, size.toFloat(), size.toFloat())
+        val center = 115f
+        val pieRadius = 45f
+        val rect = RectF(center - pieRadius, center - pieRadius, center + pieRadius, center + pieRadius)
         val ordered = operators
             .filter { it != Operator.Unknown }
             .ifEmpty { listOf(Operator.Unknown) }
@@ -381,28 +385,32 @@ private class TowerMarkerIconFactory(private val context: Context) {
             }
         }
 
-        val center = size / 2f
         paint.color = android.graphics.Color.WHITE
-        canvas.drawCircle(center, center, center * 0.72f, paint)
+        canvas.drawCircle(center, center, pieRadius * 0.40f, paint)
+        paint.color = android.graphics.Color.parseColor("#EBEBEB")
+        canvas.drawCircle(center, center, pieRadius * 0.80f, paint)
+
         paint.color = android.graphics.Color.parseColor("#263238")
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.5f * density
+        paint.strokeWidth = 4f
         paint.strokeCap = Paint.Cap.ROUND
-        val towerHalfWidth = 8f * density
-        val top = 14f * density
-        val bottom = 32f * density
-        canvas.drawLine(center - towerHalfWidth, bottom, center - 2f * density, top, paint)
-        canvas.drawLine(center + towerHalfWidth, bottom, center + 2f * density, top, paint)
-        canvas.drawLine(center - 4f * density, 22f * density, center + 4f * density, 22f * density, paint)
-        canvas.drawLine(center - towerHalfWidth, bottom, center + 4f * density, 22f * density, paint)
-        canvas.drawLine(center + towerHalfWidth, bottom, center - 4f * density, 22f * density, paint)
+        paint.strokeJoin = Paint.Join.ROUND
+        val top = center - 20f
+        val bottom = center + 40f
+        val towerHalfWidth = 21f
+        canvas.drawLine(center - towerHalfWidth, bottom, center - 7f, top, paint)
+        canvas.drawLine(center + towerHalfWidth, bottom, center + 7f, top, paint)
+        canvas.drawLine(center - 7f, top, center + 7f, top, paint)
+        canvas.drawLine(center - 14f, center + 16f, center + 14f, center + 16f, paint)
+        canvas.drawLine(center - towerHalfWidth, bottom, center + 14f, center + 16f, paint)
+        canvas.drawLine(center + towerHalfWidth, bottom, center - 14f, center + 16f, paint)
 
         return BitmapDrawable(context.resources, bitmap)
     }
 
     private fun createClusterIcon(operators: Set<Operator>, count: Int): BitmapDrawable {
         val density = context.resources.displayMetrics.density
-        val size = (48 * density).toInt()
+        val size = (45 * density).toInt()
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -412,25 +420,47 @@ private class TowerMarkerIconFactory(private val context: Context) {
             .ifEmpty { listOf(Operator.Unknown) }
             .sortedBy { it.ordinal }
             .take(4)
-        val sweep = 360f / ordered.size
-
-        ordered.forEachIndexed { index, operator ->
-            paint.style = Paint.Style.FILL
-            paint.color = operator.brandColor.toInt()
-            canvas.drawArc(rect, 180f + (index * sweep), sweep, true, paint)
+        paint.style = Paint.Style.FILL
+        when (ordered.size) {
+            1 -> {
+                paint.color = ordered[0].brandColor.toInt()
+                canvas.drawArc(rect, 0f, 360f, true, paint)
+            }
+            2 -> {
+                paint.color = ordered[0].brandColor.toInt()
+                canvas.drawArc(rect, 180f, 180f, true, paint)
+                paint.color = ordered[1].brandColor.toInt()
+                canvas.drawArc(rect, 0f, 180f, true, paint)
+            }
+            3 -> {
+                paint.color = ordered[0].brandColor.toInt()
+                canvas.drawArc(rect, 210f, 120f, true, paint)
+                paint.color = ordered[1].brandColor.toInt()
+                canvas.drawArc(rect, 330f, 120f, true, paint)
+                paint.color = ordered[2].brandColor.toInt()
+                canvas.drawArc(rect, 90f, 120f, true, paint)
+            }
+            else -> {
+                val angles = listOf(180f, 270f, 0f, 90f)
+                ordered.take(4).forEachIndexed { index, operator ->
+                    paint.color = operator.brandColor.toInt()
+                    canvas.drawArc(rect, angles[index], 90f, true, paint)
+                }
+            }
         }
 
         val center = size / 2f
         paint.color = android.graphics.Color.WHITE
-        canvas.drawCircle(center, center, center * 0.78f, paint)
+        canvas.drawCircle(center, center, center * 0.80f, paint)
 
-        paint.color = android.graphics.Color.parseColor("#263238")
+        paint.color = android.graphics.Color.parseColor("#37474F")
         paint.isFakeBoldText = true
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = when {
-            count < 100 -> size * 0.38f
-            count < 1000 -> size * 0.31f
-            else -> size * 0.23f
+            count.toString().length <= 2 -> size * 0.40f
+            count.toString().length == 3 -> size * 0.32f
+            count.toString().length == 4 -> size * 0.25f
+            else -> size * 0.20f
         }
         val textOffset = (paint.descent() + paint.ascent()) / 2f
         canvas.drawText(count.toString(), center, center - textOffset, paint)
