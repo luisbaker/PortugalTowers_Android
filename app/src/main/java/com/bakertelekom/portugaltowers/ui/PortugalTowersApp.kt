@@ -74,7 +74,7 @@ private enum class Destination(
     val title: String,
     val icon: ImageVector,
 ) {
-    Home("home", "Portugal Towers", Icons.Outlined.SignalCellularAlt),
+    Home("home", "Inicio", Icons.Outlined.SignalCellularAlt),
     Map("map", "Mapa", Icons.Outlined.Map),
     Nearby("nearby", "Perto", Icons.Outlined.NearMe),
     Settings("settings", "Definicoes", Icons.Outlined.Settings),
@@ -179,12 +179,9 @@ private fun HomeScreen(
         item {
             Hero()
         }
-        item {
-            when (appState) {
-                AppState.Empty -> StatusCard("Sem dados", "A base local esta vazia.")
-                is AppState.Error -> StatusCard("Erro na base local", appState.message, action = "Tentar de novo", onAction = onRetry)
-                AppState.Loading -> StatusCard("Base local", "A carregar torres de Portugal.")
-                is AppState.Ready -> StatusCard("Base pronta", "${appState.towers.size} torres agregadas.")
+        if (appState is AppState.Error) {
+            item {
+                StatusCard("Erro na base local", appState.message, action = "Tentar de novo", onAction = onRetry)
             }
         }
         item { SectionLabel("Explorar") }
